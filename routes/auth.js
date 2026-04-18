@@ -366,57 +366,49 @@ router.delete('/superadmin/admins/:id', authMiddleware, async (req, res) => {
 export default router
 
 // ─────────────────────────────────────────────────────────────────────
-// Helper: kirim email OTP via Nodemailer
+// Helper: kirim email OTP via Resend HTTP API (tidak butuh SMTP port)
 // ─────────────────────────────────────────────────────────────────────
-import nodemailer from 'nodemailer'
-
-function createTransporter() {
-  const port = Number(process.env.SMTP_PORT) || 587
-  return nodemailer.createTransport({
-    host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-    port,
-    secure: port === 465,   // true hanya untuk 465, false untuk 587 (STARTTLS)
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    tls: {
-      rejectUnauthorized: false,  // toleransi self-signed cert di beberapa env
-    },
-  })
-}
-
 function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
 async function sendOtpEmail(toEmail, otp) {
-  const transporter = createTransporter()
-  await transporter.sendMail({
-    from:    `"FinSmart" <${process.env.SMTP_USER}>`,
-    to:      toEmail,
-    subject: '🔑 Kode OTP Reset Password FinSmart',
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#F9FAFB;border-radius:16px">
-        <div style="text-align:center;margin-bottom:24px">
-          <span style="font-size:32px;font-weight:900;color:#1E1B4B">Fin<span style="color:#7C3AED">Smart</span></span>
-        </div>
-        <div style="background:white;border-radius:12px;padding:28px;box-shadow:0 4px 20px rgba(124,58,237,0.1)">
-          <h2 style="color:#1E1B4B;margin-bottom:8px">Reset Password Kamu 🔐</h2>
-          <p style="color:#6B7280;font-size:14px;margin-bottom:24px">
-            Gunakan kode OTP berikut untuk mereset password akun FinSmart kamu.
-            Kode berlaku selama <strong>15 menit</strong>.
-          </p>
-          <div style="background:#EDE9FE;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px">
-            <span style="font-size:36px;font-weight:900;letter-spacing:8px;color:#7C3AED">${otp}</span>
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'FinSmart <onboarding@resend.dev>',
+      to:   [toEmail],
+      subject: '🔑 Kode OTP Reset Password FinSmart',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#F9FAFB;border-radius:16px">
+          <div style="text-align:center;margin-bottom:24px">
+            <span style="font-size:32px;font-weight:900;color:#1E1B4B">Fin<span style="color:#7C3AED">Smart</span></span>
           </div>
-          <p style="color:#6B7280;font-size:12px;margin:0">
-            Jika kamu tidak meminta reset password, abaikan email ini.
-          </p>
+          <div style="background:white;border-radius:12px;padding:28px;box-shadow:0 4px 20px rgba(124,58,237,0.1)">
+            <h2 style="color:#1E1B4B;margin-bottom:8px">Reset Password Kamu 🔐</h2>
+            <p style="color:#6B7280;font-size:14px;margin-bottom:24px">
+              Gunakan kode OTP berikut untuk mereset password akun FinSmart kamu.
+              Kode berlaku selama <strong>15 menit</strong>.
+            </p>
+            <div style="background:#EDE9FE;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px">
+              <span style="font-size:36px;font-weight:900;letter-spacing:8px;color:#7C3AED">${otp}</span>
+            </div>
+            <p style="color:#6B7280;font-size:12px;margin:0">
+              Jika kamu tidak meminta reset password, abaikan email ini.
+            </p>
+          </div>
         </div>
-      </div>
-    `,
+      `,
+    }),
   })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(`Resend error: ${JSON.stringify(err)}`)
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
