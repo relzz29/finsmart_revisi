@@ -190,6 +190,23 @@ router.put('/me', authMiddleware, async (req, res) => {
   }
 })
 
+// GET /auth/admin/admins  — daftar admin (admin & superadmin, read-only)
+router.get('/admin/admins', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'superadmin')
+    return res.status(403).json({ message: 'Akses ditolak.' })
+  try {
+    const [admins] = await pool.query(
+      `SELECT id, name, email, role, created_at FROM users
+       WHERE role IN ('admin','superadmin')
+       ORDER BY role DESC, created_at DESC`
+    )
+    res.json({ admins })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ message: 'Terjadi kesalahan server.' })
+  }
+})
+
 // GET /auth/admin/users  (admin & superadmin)
 router.get('/admin/users', authMiddleware, async (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'superadmin')
