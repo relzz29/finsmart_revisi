@@ -366,24 +366,24 @@ router.delete('/superadmin/admins/:id', authMiddleware, async (req, res) => {
 export default router
 
 // ─────────────────────────────────────────────────────────────────────
-// Helper: kirim email OTP via Resend HTTP API (tidak butuh SMTP port)
+// Helper: kirim email OTP via Brevo HTTP API (tidak butuh SMTP port)
 // ─────────────────────────────────────────────────────────────────────
 function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
 async function sendOtpEmail(toEmail, otp) {
-  const res = await fetch('https://api.resend.com/emails', {
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'api-key': process.env.BREVO_API_KEY,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'FinSmart <onboarding@resend.dev>',
-      to:   [toEmail],
+      sender: { name: 'FinSmart', email: process.env.BREVO_SENDER_EMAIL },
+      to: [{ email: toEmail }],
       subject: '🔑 Kode OTP Reset Password FinSmart',
-      html: `
+      htmlContent: `
         <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#F9FAFB;border-radius:16px">
           <div style="text-align:center;margin-bottom:24px">
             <span style="font-size:32px;font-weight:900;color:#1E1B4B">Fin<span style="color:#7C3AED">Smart</span></span>
@@ -407,7 +407,7 @@ async function sendOtpEmail(toEmail, otp) {
   })
   if (!res.ok) {
     const err = await res.json()
-    throw new Error(`Resend error: ${JSON.stringify(err)}`)
+    throw new Error(`Brevo error: ${JSON.stringify(err)}`)
   }
 }
 
