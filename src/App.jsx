@@ -24,6 +24,7 @@ import AdminLogin      from './pages/AdminLogin'
 import AdminDashboard  from './pages/AdminDashboard'
 import SuperAdminDashboard   from './pages/SuperAdminDashboard'
 import AdminRegisterRequest  from './pages/AdminRegisterRequest'
+import ForgotPassword        from './pages/ForgotPassword'
 
 function Loader() {
   return (
@@ -100,6 +101,7 @@ function AppRoutes() {
         <Route path="/" element={<PublicRoute><Onboarding /></PublicRoute>} />
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+        <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
         <Route path="/budget" element={<ProtectedRoute><Budget /></ProtectedRoute>} />

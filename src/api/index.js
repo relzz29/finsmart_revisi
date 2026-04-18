@@ -87,6 +87,9 @@ export const authApi = {
   logout:         ()                => api.post('/auth/logout'),
   getProfile:     ()                => api.get('/auth/me'),
   updateProfile:  (data)            => api.put('/auth/me', data),
+  forgotPassword: (email)           => api.post('/auth/forgot-password', { email }),
+  verifyOtp:      (email, otp)      => api.post('/auth/verify-otp', { email, otp }),
+  resetPassword:  (email, otp, newPassword) => api.post('/auth/reset-password', { email, otp, newPassword }),
 }
 
 // ── Admin Auth API ────────────────────────────────────────────────

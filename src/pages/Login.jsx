@@ -119,8 +119,16 @@ export default function Login() {
             >
               {loading ? <div className="spinner" /> : 'Masuk ✨'}
             </button>
-          </form>
 
+            <div style={{ textAlign: 'right', marginTop: 10 }}>
+              <span
+                style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+                onClick={() => navigate('/forgot-password')}
+              >
+                Lupa Password?
+              </span>
+            </div>
+          </form>
 
         </div>
 
