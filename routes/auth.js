@@ -364,3 +364,136 @@ router.delete('/superadmin/admins/:id', authMiddleware, async (req, res) => {
 })
 
 export default router
+
+// ─────────────────────────────────────────────────────────────────────
+// Helper: kirim email OTP via Nodemailer
+// ─────────────────────────────────────────────────────────────────────
+import nodemailer from 'nodemailer'
+
+function createTransporter() {
+  return nodemailer.createTransport({
+    host:   process.env.SMTP_HOST   || 'smtp.gmail.com',
+    port:   Number(process.env.SMTP_PORT) || 587,
+    secure: false,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  })
+}
+
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000))
+}
+
+async function sendOtpEmail(toEmail, otp) {
+  const transporter = createTransporter()
+  await transporter.sendMail({
+    from:    `"FinSmart" <${process.env.SMTP_USER}>`,
+    to:      toEmail,
+    subject: '🔑 Kode OTP Reset Password FinSmart',
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#F9FAFB;border-radius:16px">
+        <div style="text-align:center;margin-bottom:24px">
+          <span style="font-size:32px;font-weight:900;color:#1E1B4B">Fin<span style="color:#7C3AED">Smart</span></span>
+        </div>
+        <div style="background:white;border-radius:12px;padding:28px;box-shadow:0 4px 20px rgba(124,58,237,0.1)">
+          <h2 style="color:#1E1B4B;margin-bottom:8px">Reset Password Kamu 🔐</h2>
+          <p style="color:#6B7280;font-size:14px;margin-bottom:24px">
+            Gunakan kode OTP berikut untuk mereset password akun FinSmart kamu.
+            Kode berlaku selama <strong>15 menit</strong>.
+          </p>
+          <div style="background:#EDE9FE;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px">
+            <span style="font-size:36px;font-weight:900;letter-spacing:8px;color:#7C3AED">${otp}</span>
+          </div>
+          <p style="color:#6B7280;font-size:12px;margin:0">
+            Jika kamu tidak meminta reset password, abaikan email ini.
+          </p>
+        </div>
+      </div>
+    `,
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /auth/forgot-password
+// ─────────────────────────────────────────────────────────────────────
+router.post('/forgot-password', authLimiter, async (req, res) => {
+  const { email } = req.body
+  if (!email?.trim() || !EMAIL_RE.test(email))
+    return res.status(400).json({ message: 'Masukkan email yang valid.' })
+  try {
+    const [rows] = await pool.query(
+      "SELECT id FROM users WHERE email = ? AND role = 'user'",
+      [email.toLowerCase()]
+    )
+    if (rows.length === 0)
+      return res.status(404).json({ message: 'Email tidak terdaftar.' })
+
+    const otp     = generateOtp()
+    const expires = new Date(Date.now() + 15 * 60 * 1000)
+
+    await pool.query('DELETE FROM password_resets WHERE email = ?', [email.toLowerCase()])
+    await pool.query(
+      'INSERT INTO password_resets (email, otp, expires_at) VALUES (?, ?, ?)',
+      [email.toLowerCase(), otp, expires]
+    )
+    await sendOtpEmail(email.toLowerCase(), otp)
+    res.json({ message: 'Kode OTP berhasil dikirim ke emailmu.' })
+  } catch (err) {
+    console.error('Forgot password error:', err)
+    res.status(500).json({ message: 'Gagal mengirim email. Coba lagi nanti.' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /auth/verify-otp
+// ─────────────────────────────────────────────────────────────────────
+router.post('/verify-otp', authLimiter, async (req, res) => {
+  const { email, otp } = req.body
+  if (!email?.trim() || !otp)
+    return res.status(400).json({ message: 'Email dan kode OTP wajib diisi.' })
+  try {
+    const [rows] = await pool.query(
+      `SELECT * FROM password_resets
+       WHERE email = ? AND otp = ? AND used = 0 AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [email.toLowerCase(), String(otp)]
+    )
+    if (rows.length === 0)
+      return res.status(400).json({ message: 'Kode OTP salah atau sudah kadaluarsa.' })
+    res.json({ message: 'Kode OTP valid.' })
+  } catch (err) {
+    console.error('Verify OTP error:', err)
+    res.status(500).json({ message: 'Terjadi kesalahan server.' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /auth/reset-password
+// ─────────────────────────────────────────────────────────────────────
+router.post('/reset-password', authLimiter, async (req, res) => {
+  const { email, otp, newPassword } = req.body
+  if (!email?.trim() || !otp || !newPassword)
+    return res.status(400).json({ message: 'Email, OTP, dan password baru wajib diisi.' })
+  if (!STRONG_PW.test(newPassword))
+    return res.status(400).json({ message: 'Password minimal 8 karakter, mengandung huruf dan angka.' })
+  try {
+    const [rows] = await pool.query(
+      `SELECT * FROM password_resets
+       WHERE email = ? AND otp = ? AND used = 0 AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [email.toLowerCase(), String(otp)]
+    )
+    if (rows.length === 0)
+      return res.status(400).json({ message: 'Kode OTP tidak valid atau sudah kadaluarsa.' })
+
+    const hashed = await bcrypt.hash(newPassword, 12)
+    await pool.query('UPDATE users SET password = ? WHERE email = ?', [hashed, email.toLowerCase()])
+    await pool.query('UPDATE password_resets SET used = 1 WHERE id = ?', [rows[0].id])
+    res.json({ message: 'Password berhasil diubah! Silakan login dengan password baru.' })
+  } catch (err) {
+    console.error('Reset password error:', err)
+    res.status(500).json({ message: 'Terjadi kesalahan server.' })
+  }
+})
