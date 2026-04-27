@@ -238,9 +238,12 @@ export default function Profile() {
 //  MODAL KEAMANAN
 // ══════════════════════════════════════════════════════════════════
 function KeamananModal({ step, setStep, onClose, user, toast }) {
+  const twoFAEnabled = localStorage.getItem(LS_2FA) === 'true'
+
   const menuItems = [
-    { emoji:'🔑', title:'Ubah Password',   desc:'Ganti password akunmu',    step:'ubahPassword' },
-    { emoji:'📱', title:'Perangkat Aktif', desc:'Lihat sesi login aktif',   step:'perangkat'    },
+    { emoji:'🔑', title:'Ubah Password',          desc:'Ganti password akunmu',              step:'ubahPassword' },
+    { emoji:'🛡️', title:'Verifikasi 2 Langkah',   desc: twoFAEnabled ? 'Aktif – Email OTP'  : 'Nonaktif – Tambah lapisan keamanan', step:'twoFA', badge: twoFAEnabled ? 'Aktif' : null },
+    { emoji:'📱', title:'Perangkat Aktif',         desc:'Lihat sesi login aktif',             step:'perangkat'    },
   ]
 
   const Wrapper = ({ children }) => (
@@ -293,6 +296,13 @@ function KeamananModal({ step, setStep, onClose, user, toast }) {
   if (step === 'ubahPassword') return (
     <Wrapper>
       <StepUbahPassword setStep={setStep} toast={toast} user={user}/>
+    </Wrapper>
+  )
+
+  // ── 2FA ───────────────────────────────────────────────────────────
+  if (step === 'twoFA') return (
+    <Wrapper>
+      <Step2FA setStep={setStep} toast={toast} user={user}/>
     </Wrapper>
   )
 
@@ -447,6 +457,196 @@ function StepPerangkat({ setStep, toast }) {
       )}
       {devices.length === 0 && (
         <div className="empty-state"><div className="emoji">📱</div><p>Belum ada perangkat terdaftar</p></div>
+      )}
+    </>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  STEP: VERIFIKASI 2 LANGKAH (2FA)
+// ══════════════════════════════════════════════════════════════════
+function Step2FA({ setStep, toast, user }) {
+  const isEnabled = localStorage.getItem(LS_2FA) === 'true'
+  const [phase, setPhase]       = useState('info')   // info | verify | success
+  const [otp, setOtp]           = useState(['','','','','',''])
+  const [generatedOtp, setGeneratedOtp] = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const inputRefs = Array.from({ length: 6 }, () => React.useRef(null))
+
+  // countdown timer
+  useEffect(() => {
+    if (countdown <= 0) return
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [countdown])
+
+  const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
+
+  const handleSendOtp = () => {
+    setLoading(true)
+    const code = generateOtp()
+    setGeneratedOtp(code)
+    setTimeout(() => {
+      setLoading(false)
+      setPhase('verify')
+      setCountdown(60)
+      // Tampilkan OTP di toast agar bisa ditest (simulasi email)
+      toast(`📧 Kode OTP terkirim ke ${user?.email || 'email kamu'}: ${code}`, 'success')
+    }, 1200)
+  }
+
+  const handleOtpChange = (i, val) => {
+    if (!/^\d?$/.test(val)) return
+    const next = [...otp]
+    next[i] = val
+    setOtp(next)
+    if (val && i < 5) inputRefs[i + 1].current?.focus()
+    if (!val && i > 0) inputRefs[i - 1].current?.focus()
+  }
+
+  const handleOtpKeyDown = (i, e) => {
+    if (e.key === 'Backspace' && !otp[i] && i > 0) inputRefs[i - 1].current?.focus()
+  }
+
+  const handleVerify = () => {
+    const entered = otp.join('')
+    if (entered.length < 6) { toast('Masukkan 6 digit kode OTP', 'error'); return }
+    if (entered !== generatedOtp) { toast('Kode OTP salah, coba lagi', 'error'); setOtp(['','','','','','']); inputRefs[0].current?.focus(); return }
+    localStorage.setItem(LS_2FA, (!isEnabled).toString())
+    setPhase('success')
+  }
+
+  const handleResend = () => {
+    const code = generateOtp()
+    setGeneratedOtp(code)
+    setCountdown(60)
+    setOtp(['','','','','',''])
+    toast(`📧 Kode baru dikirim: ${code}`, 'success')
+  }
+
+  const handleDisable = () => {
+    localStorage.setItem(LS_2FA, 'false')
+    toast('Verifikasi 2 langkah dinonaktifkan', 'success')
+    setStep('menu')
+  }
+
+  return (
+    <>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
+        <button onClick={() => setStep('menu')} style={{ background:'var(--border-light)', border:'none', borderRadius:'50%', width:36, height:36, cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>‹</button>
+        <h3 style={{ fontSize:18, fontWeight:900, fontFamily:'var(--font-display)', color:'var(--text)' }}>🛡️ Verifikasi 2 Langkah</h3>
+      </div>
+
+      {/* STATUS BADGE */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background: isEnabled ? '#F0FDF4' : '#FFF7ED', border:`1px solid ${isEnabled ? '#86EFAC' : '#FED7AA'}`, borderRadius:'var(--radius-sm)', padding:'12px 16px', marginBottom:20 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:22 }}>{isEnabled ? '✅' : '🔓'}</span>
+          <div>
+            <div style={{ fontWeight:800, fontSize:14, color: isEnabled ? '#166534' : '#92400E' }}>
+              {isEnabled ? 'Aktif' : 'Tidak Aktif'}
+            </div>
+            <div style={{ fontSize:12, color: isEnabled ? '#4ADE80' : '#F59E0B', marginTop:2 }}>
+              {isEnabled ? 'Akun kamu lebih aman' : 'Aktifkan untuk keamanan ekstra'}
+            </div>
+          </div>
+        </div>
+        <div style={{ width:44, height:26, borderRadius:13, background: isEnabled ? 'var(--primary)' : '#D1D5DB', display:'flex', alignItems:'center', padding:'0 3px', cursor:'pointer', transition:'background 0.2s' }}
+          onClick={isEnabled ? handleDisable : handleSendOtp}>
+          <div style={{ width:20, height:20, borderRadius:'50%', background:'white', boxShadow:'0 1px 4px rgba(0,0,0,0.2)', transition:'transform 0.2s', transform: isEnabled ? 'translateX(18px)' : 'translateX(0)' }}/>
+        </div>
+      </div>
+
+      {/* PHASE: INFO */}
+      {phase === 'info' && !isEnabled && (
+        <div>
+          <div style={{ background:'#F8FAFC', borderRadius:'var(--radius-sm)', padding:16, marginBottom:20 }}>
+            <div style={{ fontWeight:800, fontSize:14, marginBottom:10 }}>Bagaimana cara kerjanya?</div>
+            {[
+              { n:'1', text:'Saat login, kamu memasukkan email & password seperti biasa.' },
+              { n:'2', text:'Kami mengirim kode 6 digit ke email kamu.' },
+              { n:'3', text:'Masukkan kode tersebut untuk menyelesaikan login.' },
+            ].map(s => (
+              <div key={s.n} style={{ display:'flex', gap:12, marginBottom:10, alignItems:'flex-start' }}>
+                <div style={{ width:24, height:24, borderRadius:'50%', background:'var(--primary)', color:'white', fontWeight:900, fontSize:12, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>{s.n}</div>
+                <p style={{ fontSize:13, color:'var(--text-muted)', margin:0, lineHeight:1.5 }}>{s.text}</p>
+              </div>
+            ))}
+          </div>
+          <div style={{ background:'#FFFBEB', border:'1px solid #FDE68A', borderRadius:'var(--radius-sm)', padding:12, marginBottom:20, fontSize:12, color:'#92400E', display:'flex', gap:8 }}>
+            <span>⚠️</span>
+            <span>Pastikan kamu masih memiliki akses ke email <strong>{user?.email || 'kamu'}</strong> sebelum mengaktifkan fitur ini.</span>
+          </div>
+          <button className="btn btn-primary w-full" style={{ padding:16 }} onClick={handleSendOtp} disabled={loading}>
+            {loading
+              ? <span style={{ display:'flex', alignItems:'center', gap:8, justifyContent:'center' }}><div className="spinner"/>Mengirim kode OTP...</span>
+              : '📧 Kirim Kode Verifikasi'}
+          </button>
+        </div>
+      )}
+
+      {/* PHASE: VERIFY */}
+      {phase === 'verify' && (
+        <div>
+          <p style={{ fontSize:14, color:'var(--text-muted)', marginBottom:6 }}>
+            Kode OTP telah dikirim ke
+          </p>
+          <p style={{ fontSize:14, fontWeight:800, color:'var(--text)', marginBottom:20 }}>
+            📧 {user?.email || 'email kamu'}
+          </p>
+
+          {/* OTP Boxes */}
+          <div style={{ display:'flex', gap:8, justifyContent:'center', marginBottom:20 }}>
+            {otp.map((digit, i) => (
+              <input
+                key={i}
+                ref={inputRefs[i]}
+                type="tel"
+                inputMode="numeric"
+                maxLength={1}
+                value={digit}
+                onChange={e => handleOtpChange(i, e.target.value)}
+                onKeyDown={e => handleOtpKeyDown(i, e)}
+                style={{
+                  width:44, height:52, textAlign:'center', fontSize:22, fontWeight:900,
+                  border:`2px solid ${digit ? 'var(--primary)' : 'var(--border)'}`,
+                  borderRadius:10, background: digit ? '#F5F3FF' : 'white',
+                  color:'var(--text)', outline:'none', fontFamily:'var(--font-display)',
+                  transition:'all 0.15s'
+                }}
+              />
+            ))}
+          </div>
+
+          <button className="btn btn-primary w-full" style={{ padding:16, marginBottom:12 }} onClick={handleVerify}>
+            ✅ Verifikasi & Aktifkan
+          </button>
+
+          <div style={{ textAlign:'center', fontSize:13, color:'var(--text-muted)' }}>
+            {countdown > 0
+              ? <span>Kirim ulang kode dalam <strong>{countdown}s</strong></span>
+              : <button onClick={handleResend} style={{ background:'none', border:'none', color:'var(--primary)', fontWeight:700, cursor:'pointer', fontSize:13 }}>🔄 Kirim Ulang Kode</button>
+            }
+          </div>
+        </div>
+      )}
+
+      {/* PHASE: SUCCESS */}
+      {phase === 'success' && (
+        <div style={{ textAlign:'center', padding:'20px 0' }}>
+          <div style={{ fontSize:64, marginBottom:16 }}>🎉</div>
+          <h4 style={{ fontSize:20, fontWeight:900, color:'var(--text)', marginBottom:8, fontFamily:'var(--font-display)' }}>
+            {isEnabled ? 'Berhasil Dinonaktifkan' : 'Berhasil Diaktifkan!'}
+          </h4>
+          <p style={{ fontSize:14, color:'var(--text-muted)', marginBottom:24, lineHeight:1.6 }}>
+            Verifikasi 2 langkah kini <strong>{localStorage.getItem(LS_2FA) === 'true' ? 'aktif' : 'nonaktif'}</strong>.<br/>
+            {localStorage.getItem(LS_2FA) === 'true' ? 'Akunmu sekarang lebih aman 🔒' : 'Kamu bisa mengaktifkannya kembali kapan saja.'}
+          </p>
+          <button className="btn btn-primary w-full" style={{ padding:16 }} onClick={() => setStep('menu')}>
+            Kembali ke Menu Keamanan
+          </button>
+        </div>
       )}
     </>
   )
