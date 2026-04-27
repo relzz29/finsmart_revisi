@@ -467,33 +467,30 @@ function StepPerangkat({ setStep, toast }) {
 // ══════════════════════════════════════════════════════════════════
 function Step2FA({ setStep, toast, user }) {
   const isEnabled = localStorage.getItem(LS_2FA) === 'true'
-  const [phase, setPhase]       = useState('info')   // info | verify | success
-  const [otp, setOtp]           = useState(['','','','','',''])
-  const [generatedOtp, setGeneratedOtp] = useState('')
-  const [loading, setLoading]   = useState(false)
+  const [phase, setPhase]         = useState('info')
+  const [otp, setOtp]             = useState(['','','','','',''])
+  const [loading, setLoading]     = useState(false)
   const [countdown, setCountdown] = useState(0)
   const inputRefs = Array.from({ length: 6 }, () => React.useRef(null))
 
-  // countdown timer
   useEffect(() => {
     if (countdown <= 0) return
     const t = setTimeout(() => setCountdown(c => c - 1), 1000)
     return () => clearTimeout(t)
   }, [countdown])
 
-  const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
-
-  const handleSendOtp = () => {
+  const handleSendOtp = async () => {
     setLoading(true)
-    const code = generateOtp()
-    setGeneratedOtp(code)
-    setTimeout(() => {
-      setLoading(false)
+    try {
+      await authApi.send2faOtp()
       setPhase('verify')
       setCountdown(60)
-      // Tampilkan OTP di toast agar bisa ditest (simulasi email)
-      toast(`📧 Kode OTP terkirim ke ${user?.email || 'email kamu'}: ${code}`, 'success')
-    }, 1200)
+      toast(`📧 Kode OTP dikirim ke ${user?.email}`, 'success')
+    } catch (err) {
+      toast(err.message || 'Gagal mengirim OTP', 'error')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleOtpChange = (i, val) => {
@@ -509,27 +506,35 @@ function Step2FA({ setStep, toast, user }) {
     if (e.key === 'Backspace' && !otp[i] && i > 0) inputRefs[i - 1].current?.focus()
   }
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     const entered = otp.join('')
     if (entered.length < 6) { toast('Masukkan 6 digit kode OTP', 'error'); return }
-    if (entered !== generatedOtp) { toast('Kode OTP salah, coba lagi', 'error'); setOtp(['','','','','','']); inputRefs[0].current?.focus(); return }
-    localStorage.setItem(LS_2FA, (!isEnabled).toString())
-    setPhase('success')
+    setLoading(true)
+    try {
+      await authApi.verify2faOtp(entered, !isEnabled)
+      localStorage.setItem(LS_2FA, (!isEnabled).toString())
+      setPhase('success')
+    } catch (err) {
+      toast(err.message || 'Kode OTP salah', 'error')
+      setOtp(['','','','','',''])
+      inputRefs[0].current?.focus()
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleResend = () => {
-    const code = generateOtp()
-    setGeneratedOtp(code)
-    setCountdown(60)
+  const handleResend = async () => {
     setOtp(['','','','','',''])
-    toast(`📧 Kode baru dikirim: ${code}`, 'success')
+    setCountdown(60)
+    try {
+      await authApi.send2faOtp()
+      toast(`📧 Kode baru dikirim ke ${user?.email}`, 'success')
+    } catch (err) {
+      toast(err.message || 'Gagal mengirim ulang', 'error')
+    }
   }
 
-  const handleDisable = () => {
-    localStorage.setItem(LS_2FA, 'false')
-    toast('Verifikasi 2 langkah dinonaktifkan', 'success')
-    setStep('menu')
-  }
+  const handleDisable = () => handleSendOtp()
 
   return (
     <>

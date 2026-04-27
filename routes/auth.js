@@ -380,10 +380,106 @@ router.delete('/superadmin/admins/:id', authMiddleware, async (req, res) => {
   }
 })
 
-export default router
+// ─────────────────────────────────────────────────────────────────────
+// POST /auth/send-2fa-otp  — kirim OTP untuk aktifkan/nonaktifkan 2FA
+// ─────────────────────────────────────────────────────────────────────
+router.post('/send-2fa-otp', authMiddleware, authLimiter, async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [req.user.id])
+    if (rows.length === 0) return res.status(404).json({ message: 'User tidak ditemukan.' })
+
+    const email   = rows[0].email
+    const otp     = generateOtp()
+    const expires = new Date(Date.now() + 10 * 60 * 1000) // 10 menit
+
+    await pool.query('DELETE FROM password_resets WHERE email = ?', [email])
+    await pool.query(
+      'INSERT INTO password_resets (email, otp, expires_at) VALUES (?, ?, ?)',
+      [email, otp, expires]
+    )
+
+    // Kirim email OTP via Brevo
+    const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: 'FinSmart', email: process.env.BREVO_SENDER_EMAIL },
+        to: [{ email }],
+        subject: '🛡️ Kode Verifikasi 2 Langkah FinSmart',
+        htmlContent: `
+          <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#F9FAFB;border-radius:16px">
+            <div style="text-align:center;margin-bottom:24px">
+              <span style="font-size:32px;font-weight:900;color:#1E1B4B">Fin<span style="color:#7C3AED">Smart</span></span>
+            </div>
+            <div style="background:white;border-radius:12px;padding:28px;box-shadow:0 4px 20px rgba(124,58,237,0.1)">
+              <h2 style="color:#1E1B4B;margin-bottom:8px">Verifikasi 2 Langkah 🛡️</h2>
+              <p style="color:#6B7280;font-size:14px;margin-bottom:24px">
+                Gunakan kode berikut untuk mengaktifkan Verifikasi 2 Langkah di akun FinSmart kamu.
+                Kode berlaku selama <strong>10 menit</strong>.
+              </p>
+              <div style="background:#EDE9FE;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px">
+                <span style="font-size:36px;font-weight:900;letter-spacing:8px;color:#7C3AED">${otp}</span>
+              </div>
+              <p style="color:#6B7280;font-size:12px;margin:0">
+                Jika kamu tidak meminta ini, abaikan email ini.
+              </p>
+            </div>
+          </div>
+        `,
+      }),
+    })
+    if (!brevoRes.ok) {
+      const err = await brevoRes.json()
+      throw new Error(`Brevo error: ${JSON.stringify(err)}`)
+    }
+
+    res.json({ message: 'Kode OTP berhasil dikirim ke emailmu.' })
+  } catch (err) {
+    console.error('Send 2FA OTP error:', err)
+    res.status(500).json({ message: 'Gagal mengirim email. Coba lagi nanti.' })
+  }
+})
 
 // ─────────────────────────────────────────────────────────────────────
-// Helper: kirim email OTP via Brevo HTTP API (tidak butuh SMTP port)
+// POST /auth/verify-2fa-otp  — verifikasi OTP lalu simpan status 2FA
+// ─────────────────────────────────────────────────────────────────────
+router.post('/verify-2fa-otp', authMiddleware, authLimiter, async (req, res) => {
+  const { otp, enable } = req.body   // enable: true = aktifkan, false = nonaktifkan
+  if (!otp) return res.status(400).json({ message: 'Kode OTP wajib diisi.' })
+  try {
+    const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [req.user.id])
+    if (rows.length === 0) return res.status(404).json({ message: 'User tidak ditemukan.' })
+
+    const email = rows[0].email
+    const [otpRows] = await pool.query(
+      `SELECT * FROM password_resets
+       WHERE email = ? AND otp = ? AND used = 0 AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [email, String(otp)]
+    )
+    if (otpRows.length === 0)
+      return res.status(400).json({ message: 'Kode OTP salah atau sudah kadaluarsa.' })
+
+    // Tandai OTP sudah terpakai
+    await pool.query('UPDATE password_resets SET used = 1 WHERE id = ?', [otpRows[0].id])
+
+    // Simpan status 2FA ke tabel users (kolom two_fa_enabled)
+    await pool.query('UPDATE users SET two_fa_enabled = ? WHERE id = ?', [enable ? 1 : 0, req.user.id])
+
+    res.json({
+      message: enable ? 'Verifikasi 2 Langkah berhasil diaktifkan! 🛡️' : 'Verifikasi 2 Langkah dinonaktifkan.',
+      twoFaEnabled: !!enable,
+    })
+  } catch (err) {
+    console.error('Verify 2FA OTP error:', err)
+    res.status(500).json({ message: 'Terjadi kesalahan server.' })
+  }
+})
+
+export default router
 // ─────────────────────────────────────────────────────────────────────
 function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000))
