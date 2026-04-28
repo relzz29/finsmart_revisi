@@ -44,6 +44,7 @@ export const authApi = {
   resetPassword:  (email, otp, newPassword) => api.post('/auth/reset-password', { email, otp, newPassword }),
   send2faOtp:     ()                => api.post('/auth/send-2fa-otp'),
   verify2faOtp:   (otp, enable)     => api.post('/auth/verify-2fa-otp', { otp, enable }),
+  login2fa:       (email, otp)      => api.post('/auth/login-2fa', { email, otp }),
 }
 
 export const adminAuthApi = {
