@@ -551,42 +551,7 @@ router.post('/verify-2fa-otp', authMiddleware, authLimiter, async (req, res) => 
     res.status(500).json({ message: 'Terjadi kesalahan server.' })
   }
 })
-router.post('/send-message', authMiddleware, async (req, res) => {
-  const { userId, subject, message, sendEmail } = req.body
-  if (!userId || !subject || !message)
-    return res.status(400).json({ message: 'userId, subject, dan message wajib diisi.' })
-  try {
-    await pool.query(
-      'INSERT INTO notifications (user_id, type, title, body) VALUES (?,?,?,?)',
-      [userId, 'info', subject, message]
-    )
-    if (sendEmail) {
-      const [rows] = await pool.query('SELECT email, name FROM users WHERE id = ?', [userId])
-      if (rows.length > 0) {
-        await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'api-key': process.env.BREVO_API_KEY
-          },
-          body: JSON.stringify({
-            sender: { name: 'FinSmart', email: process.env.BREVO_SENDER_EMAIL },
-            to: [{ email: rows[0].email, name: rows[0].name }],
-            subject: subject,
-            htmlContent: `<div style="font-family:sans-serif;max-width:500px;margin:auto">
-              <h2 style="color:#7C3AED">Pesan dari Admin FinSmart</h2>
-              <p>${message.replace(/\n/g, '<br>')}</p>
-              <hr><p style="color:#9CA3AF;font-size:12px">FinSmart — Aplikasi Keuangan Cerdas</p>
-            </div>`
-          })
-        })
-      }
-    }
-    res.json({ success: true })
-  } catch (err) {
-    res.status(500).json({ message: 'Gagal mengirim pesan.' })
-  }
-})
+
 export default router
 // ─────────────────────────────────────────────────────────────────────
 function generateOtp() {
