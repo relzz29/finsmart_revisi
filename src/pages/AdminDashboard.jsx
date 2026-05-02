@@ -114,7 +114,7 @@ function MsgPage({ user, onBack }) {
   setSending(true)
   try {
     const token = getAdminToken()
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/send-message`, {
+   const res = await fetch(`${import.meta.env.VITE_API_URL || 'https://finsmartrevisi-production.up.railway.app/v1'}/auth/send-message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ userId: user.id, subject: sub, message: body, sendEmail: email })
