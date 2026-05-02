@@ -109,7 +109,21 @@ function MsgPage({ user, onBack }) {
   const [email, setEmail] = useState(true), [hi, setHi] = useState(false), [sending, setSending] = useState(false), [sent, setSent] = useState(false)
   const MAX = 500
   function applyTpl(t) { setSub(t.label + ' – ' + user.name); setBody(t.text.replace('{nama}', user.name.split(' ')[0])) }
-  function send() { if (!sub.trim() || !body.trim() || body.length > MAX) return; setSending(true); setTimeout(() => { setSending(false); setSent(true) }, 1400) }
+ async function send() {
+  if (!sub.trim() || !body.trim() || body.length > MAX) return
+  setSending(true)
+  try {
+    const token = getAdminToken()
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ userId: user.id, subject: sub, message: body, sendEmail: email })
+    })
+    if (!res.ok) throw new Error()
+    setSent(true)
+  } catch { alert('Gagal mengirim pesan.') }
+  setSending(false)
+}
   if (sent) return (
     <div className="a-overlay" onClick={onBack}><div className="a-modal" onClick={e => e.stopPropagation()} style={{ textAlign: 'center', maxWidth: 380 }}>
       <div style={{ fontSize: 56, marginBottom: 12 }}>✅</div>
