@@ -92,7 +92,7 @@ function NotifBridge() {
 function AppRoutes() {
   const { user } = useAuth()
   const location = useLocation() 
- const showSidebar = user && !['/login', '/register', '/', '/admin-register-request', '/admin-login', '/admin-register'].includes(location.pathname)
+  const showSidebar = user && !['/login', '/register', '/'].includes(location.pathname)
   return (
     <>
       <NotifBridge />
