@@ -114,6 +114,10 @@ router.post('/login', authLimiter, async (req, res) => {
     const match = await bcrypt.compare(password, user.password)
     if (!match) return res.status(401).json({ message: 'Email atau password salah.' })
 
+    // Cek apakah akun dinonaktifkan (khusus admin)
+    if ((user.role === 'admin') && user.is_active === 0)
+      return res.status(403).json({ message: 'Akun admin Anda telah dinonaktifkan. Hubungi Super Admin.' })
+
     // Cek apakah 2FA aktif
     if (user.two_fa_enabled) {
       const otp     = generateOtp()
@@ -269,7 +273,7 @@ router.get('/admin/admins', authMiddleware, async (req, res) => {
     return res.status(403).json({ message: 'Akses ditolak.' })
   try {
     const [admins] = await pool.query(
-      `SELECT id, name, email, role, created_at FROM users
+      `SELECT id, name, email, role, is_active, created_at FROM users
        WHERE role IN ('admin','superadmin')
        ORDER BY role DESC, created_at DESC`
     )
@@ -548,6 +552,33 @@ router.post('/verify-2fa-otp', authMiddleware, authLimiter, async (req, res) => 
     })
   } catch (err) {
     console.error('Verify 2FA OTP error:', err)
+    res.status(500).json({ message: 'Terjadi kesalahan server.' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// PATCH /auth/admin/admins/:id/toggle-active  — aktifkan/nonaktifkan admin
+// ─────────────────────────────────────────────────────────────────────
+router.patch('/admin/admins/:id/toggle-active', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'superadmin')
+    return res.status(403).json({ message: 'Akses ditolak.' })
+  const { id } = req.params
+  if (Number(id) === req.user.id)
+    return res.status(400).json({ message: 'Tidak bisa mengubah status akun sendiri.' })
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, name, is_active FROM users WHERE id = ? AND role = 'admin'", [id]
+    )
+    if (rows.length === 0)
+      return res.status(404).json({ message: 'Admin tidak ditemukan.' })
+    const newStatus = rows[0].is_active ? 0 : 1
+    await pool.query('UPDATE users SET is_active = ? WHERE id = ?', [newStatus, id])
+    res.json({
+      message: newStatus ? `Admin ${rows[0].name} berhasil diaktifkan.` : `Admin ${rows[0].name} berhasil dinonaktifkan.`,
+      is_active: newStatus
+    })
+  } catch (err) {
+    console.error('Toggle active error:', err)
     res.status(500).json({ message: 'Terjadi kesalahan server.' })
   }
 })

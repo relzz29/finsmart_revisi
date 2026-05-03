@@ -54,6 +54,7 @@ export const adminAuthApi = {
   getProfile:      ()                => adminApi.get('/auth/me'),
   getUsers:        ()                => adminApi.get('/auth/admin/users'),
   getAdmins:       ()                => adminApi.get('/auth/admin/admins'),
+  toggleAdminActive: (id)            => adminApi.patch(`/auth/admin/admins/${id}/toggle-active`),
 }
 
 export const superAdminApi = {

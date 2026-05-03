@@ -117,6 +117,13 @@ export async function initDB() {
     // Pastikan kolom avatar cukup besar untuk Base64
     await conn.query(`ALTER TABLE users MODIFY COLUMN avatar MEDIUMTEXT DEFAULT NULL`)
 
+    // Pastikan kolom is_active ada di tabel users
+    try {
+      await conn.query(`ALTER TABLE users ADD COLUMN is_active TINYINT(1) DEFAULT 1`)
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') throw e
+    }
+
     // Pastikan kolom aspek rating ada (ignore error jika sudah ada)
     const aspectCols = ['aspect_design', 'aspect_ease', 'aspect_feature', 'aspect_performance']
     for (const col of aspectCols) {

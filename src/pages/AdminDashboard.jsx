@@ -273,18 +273,34 @@ function NotifPage({ notifs, setNotifs }) {
 }
 
 // ── MONITOR ADMIN ─────────────────────────────────────────────────────────────
-function MonitorPage({ realAdmins, myId }) {
+function MonitorPage({ realAdmins, myId, onRefresh, showToast }) {
   const [sadmins, setSadmins] = useState(STATIC_ADMINS)
-  const [realStatus, setRealStatus] = useState({})
   const [filt, setFilt] = useState('Semua')
   const [conf, setConf] = useState(null)
-  const realMapped = realAdmins.filter(r=>String(r.id)!==String(myId)).map((r,i)=>({ id:`r${r.id}`,name:r.name,email:r.email,status:realStatus[`r${r.id}`]||'Aktif',lastDays:0,workHours:0,todayHours:0,lastOnline:'Baru saja',color:AV[(i+3)%AV.length] }))
+  const [toggling, setToggling] = useState(null)
+  const realMapped = realAdmins.filter(r=>String(r.id)!==String(myId)).map((r,i)=>({
+    id:`r${r.id}`, realId: r.id, name:r.name, email:r.email,
+    status: r.is_active === 0 ? 'Nonaktif' : 'Aktif',
+    lastDays:0, workHours:0, todayHours:0, lastOnline:'Baru saja', color:AV[(i+3)%AV.length]
+  }))
   const all = [...sadmins, ...realMapped]
   const filtered = all.filter(a => filt==='Semua' || a.status===filt)
   const counts = { Semua:all.length, Aktif:all.filter(a=>a.status==='Aktif').length, Nonaktif:all.filter(a=>a.status==='Nonaktif').length }
-  function toggle(id) {
+
+  async function toggle(id) {
+    const item = all.find(a => a.id === id)
+    if (!item) return setConf(null)
     if (id.startsWith('r')) {
-      setRealStatus(p => ({ ...p, [id]: (p[id]||'Aktif')==='Aktif' ? 'Nonaktif' : 'Aktif' }))
+      // Admin real — panggil API
+      setToggling(id)
+      try {
+        const res = await adminAuthApi.toggleAdminActive(item.realId)
+        showToast(res.message || 'Status berhasil diubah.')
+        onRefresh()
+      } catch(e) {
+        showToast(e.message || 'Gagal mengubah status.', 'error')
+      }
+      setToggling(null)
     } else {
       setSadmins(p=>p.map(a=>a.id===id?{...a,status:a.status==='Aktif'?'Nonaktif':'Aktif'}:a))
     }
@@ -337,8 +353,8 @@ function MonitorPage({ realAdmins, myId }) {
                 <div style={{ background:'white',borderRadius:10,padding:'8px 10px',border:'1px solid #E5E7EB' }}><div style={{ fontSize:10,color:'#9CA3AF',marginBottom:2 }}>JAM KERJA</div><div style={{ fontWeight:800,color:'#7C3AED',fontFamily:'monospace' }}>{a.workHours}h</div></div>
                 <div style={{ background:'white',borderRadius:10,padding:'8px 10px',border:'1px solid #E5E7EB' }}><div style={{ fontSize:10,color:'#9CA3AF',marginBottom:2 }}>HARI INI</div><div style={{ fontWeight:800,color:a.todayHours>0?'#10B981':'#9CA3AF',fontFamily:'monospace' }}>{a.todayHours>0?`${a.todayHours}h`:'—'}</div></div>
               </div>
-              <button className="a-btn" style={{ width:'100%',justifyContent:'center',background:a.status==='Aktif'?'#FEF3C7':'#D1FAE5',color:a.status==='Aktif'?'#92400E':'#065F46' }} onClick={() => setConf(a.id)}>
-                {a.status==='Aktif'?'🔒 Nonaktifkan':'🔓 Aktifkan'}
+              <button className="a-btn" disabled={toggling===a.id} style={{ width:'100%',justifyContent:'center',background:a.status==='Aktif'?'#FEF3C7':'#D1FAE5',color:a.status==='Aktif'?'#92400E':'#065F46',opacity:toggling===a.id?0.7:1,cursor:toggling===a.id?'not-allowed':'pointer' }} onClick={() => setConf(a.id)}>
+                {toggling===a.id?'⏳ Memproses...':(a.status==='Aktif'?'🔒 Nonaktifkan':'🔓 Aktifkan')}
               </button>
             </div>
           ))}
@@ -826,7 +842,7 @@ export default function AdminDashboard() {
           {tab==='catatan'      && <CatatanPage notes={notes} setNotes={setNotes} />}
           {tab==='laporan'      && <LaporanPage users={users} articles={articles} ratings={ratings} ratingAvg={ratingAvg} />}
           {tab==='notif-sistem' && <NotifPage notifs={sysNotifs} setNotifs={setSysNotifs} />}
-          {tab==='monitor'      && <MonitorPage realAdmins={admins} myId={admin.id} />}
+          {tab==='monitor'      && <MonitorPage realAdmins={admins} myId={admin.id} onRefresh={fetchAll} showToast={toast$} />}
           {tab==='__msg__'      && msgTarget && <MsgPage user={msgTarget} onBack={()=>{setMsgTarget(null);setTab('users')}} />}
         </main>
       </div>
