@@ -275,12 +275,21 @@ function NotifPage({ notifs, setNotifs }) {
 // ── MONITOR ADMIN ─────────────────────────────────────────────────────────────
 function MonitorPage({ realAdmins, myId }) {
   const [sadmins, setSadmins] = useState(STATIC_ADMINS)
+  const [realStatus, setRealStatus] = useState({})
   const [filt, setFilt] = useState('Semua')
   const [conf, setConf] = useState(null)
-  const all = [...sadmins, ...realAdmins.filter(r=>String(r.id)!==String(myId)).map((r,i)=>({ id:`r${r.id}`,name:r.name,email:r.email,status:'Aktif',lastDays:0,workHours:0,todayHours:0,lastOnline:'Baru saja',color:AV[(i+3)%AV.length] }))]
+  const realMapped = realAdmins.filter(r=>String(r.id)!==String(myId)).map((r,i)=>({ id:`r${r.id}`,name:r.name,email:r.email,status:realStatus[`r${r.id}`]||'Aktif',lastDays:0,workHours:0,todayHours:0,lastOnline:'Baru saja',color:AV[(i+3)%AV.length] }))
+  const all = [...sadmins, ...realMapped]
   const filtered = all.filter(a => filt==='Semua' || a.status===filt)
   const counts = { Semua:all.length, Aktif:all.filter(a=>a.status==='Aktif').length, Nonaktif:all.filter(a=>a.status==='Nonaktif').length }
-  function toggle(id) { setSadmins(p=>p.map(a=>a.id===id?{...a,status:a.status==='Aktif'?'Nonaktif':'Aktif'}:a)); setConf(null) }
+  function toggle(id) {
+    if (id.startsWith('r')) {
+      setRealStatus(p => ({ ...p, [id]: (p[id]||'Aktif')==='Aktif' ? 'Nonaktif' : 'Aktif' }))
+    } else {
+      setSadmins(p=>p.map(a=>a.id===id?{...a,status:a.status==='Aktif'?'Nonaktif':'Aktif'}:a))
+    }
+    setConf(null)
+  }
   const t = conf ? all.find(a=>a.id===conf) : null
   return (
     <div className="a-fade">
