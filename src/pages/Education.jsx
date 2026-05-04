@@ -33,7 +33,6 @@ export default function Education() {
 
   useEffect(() => { load() }, [])
 
-  // Fetch detail artikel dari API saat artikel dipilih
   const openArticle = (article) => {
     setSelectedArticle(article)
     setArticleDetail(null)
@@ -61,9 +60,10 @@ export default function Education() {
     setDetailError(null)
   }
 
+  // ✅ FIX 1: null guard pada category & title agar tidak crash
   const filtered = articles.filter(a => {
-    const mF = filter === 'Semua' || a.category.toLowerCase().includes(filter.toLowerCase())
-    const mS = !search || a.title.toLowerCase().includes(search.toLowerCase())
+    const mF = filter === 'Semua' || (a.category ?? '').toLowerCase().includes(filter.toLowerCase())
+    const mS = !search || (a.title ?? '').toLowerCase().includes(search.toLowerCase())
     return mF && mS
   })
 
@@ -151,7 +151,7 @@ export default function Education() {
               </div>
             </div>
 
-            {/* Loading skeleton untuk konten */}
+            {/* Loading skeleton */}
             {detailLoading && (
               <div style={{ marginBottom:20 }}>
                 <div className="skeleton" style={{ height:16, borderRadius:8, marginBottom:10 }}/>
@@ -177,7 +177,7 @@ export default function Education() {
               </div>
             )}
 
-            {/* Tags — dari database */}
+            {/* Tags */}
             {!detailLoading && articleDetail?.tags?.length > 0 && (
               <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:20 }}>
                 {articleDetail.tags.map(tag => (
@@ -186,7 +186,7 @@ export default function Education() {
               </div>
             )}
 
-            {/* Article Body — dari database */}
+            {/* Article Body */}
             {!detailLoading && !detailError && articleDetail && (
               articleDetail.content
                 ? (
@@ -194,8 +194,9 @@ export default function Education() {
                     {articleDetail.content
                       .split('\n\n')
                       .map((paragraph, i) => {
-                        if (paragraph.startsWith('**') && paragraph.endsWith('**')) {
-                          const text = paragraph.slice(2, -2)
+                        // ✅ FIX 2: regex ketat agar hanya full-paragraph **teks** yang jadi heading
+                        if (/^\*\*[^*]+\*\*$/.test(paragraph.trim())) {
+                          const text = paragraph.trim().slice(2, -2)
                           return <h3 key={i} style={{ fontWeight:900, fontSize:16, fontFamily:'var(--font-display)', marginTop:24, marginBottom:8, color:'var(--text)' }}>{text}</h3>
                         }
                         const parts = paragraph.split(/(\*\*[^*]+\*\*)/)
@@ -205,7 +206,8 @@ export default function Education() {
                               if (part.startsWith('**') && part.endsWith('**')) {
                                 return <strong key={j}>{part.slice(2,-2)}</strong>
                               }
-                              if (part.includes('\n•') || part.includes('\n-')) {
+                              // ✅ FIX 3: tambah startsWith agar bullet di awal paragraph ikut ter-render
+                              if (part.includes('\n•') || part.includes('\n-') || part.startsWith('•') || part.startsWith('-')) {
                                 return part.split('\n').map((line, k) => {
                                   if (line.startsWith('•') || line.startsWith('-')) {
                                     return <div key={k} style={{ display:'flex', gap:8, marginBottom:6 }}><span style={{ color:'var(--primary)', flexShrink:0 }}>•</span><span>{line.slice(1).trim()}</span></div>
