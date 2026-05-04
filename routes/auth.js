@@ -106,7 +106,6 @@ router.post('/login', authLimiter, async (req, res) => {
     return res.status(400).json({ message: 'Email dan password wajib diisi.' })
   try {
     const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email.toLowerCase()])
-    // Pesan error generik — jangan bocorkan apakah email ada atau tidak
     if (rows.length === 0) {
       await bcrypt.hash('dummy_to_prevent_timing_attack', 12)
       return res.status(401).json({ message: 'Email atau password salah.' })
@@ -114,10 +113,88 @@ router.post('/login', authLimiter, async (req, res) => {
     const user  = rows[0]
     const match = await bcrypt.compare(password, user.password)
     if (!match) return res.status(401).json({ message: 'Email atau password salah.' })
+
+    // Cek apakah akun dinonaktifkan (khusus admin)
+    if ((user.role === 'admin') && user.is_active === 0)
+      return res.status(403).json({ message: 'Akun admin Anda telah dinonaktifkan. Hubungi Super Admin.' })
+
+    // Cek apakah 2FA aktif
+    if (user.two_fa_enabled) {
+      const otp     = generateOtp()
+      const expires = new Date(Date.now() + 10 * 60 * 1000)
+      await pool.query('DELETE FROM password_resets WHERE email = ?', [user.email])
+      await pool.query(
+        'INSERT INTO password_resets (email, otp, expires_at) VALUES (?, ?, ?)',
+        [user.email, otp, expires]
+      )
+      await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: { name: 'FinSmart', email: process.env.BREVO_SENDER_EMAIL },
+          to: [{ email: user.email }],
+          subject: '🛡️ Kode Login Verifikasi 2 Langkah FinSmart',
+          htmlContent: `
+            <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#F9FAFB;border-radius:16px">
+              <div style="text-align:center;margin-bottom:24px">
+                <span style="font-size:32px;font-weight:900;color:#1E1B4B">Fin<span style="color:#7C3AED">Smart</span></span>
+              </div>
+              <div style="background:white;border-radius:12px;padding:28px;box-shadow:0 4px 20px rgba(124,58,237,0.1)">
+                <h2 style="color:#1E1B4B;margin-bottom:8px">Verifikasi Login 🛡️</h2>
+                <p style="color:#6B7280;font-size:14px;margin-bottom:24px">
+                  Ada percobaan login ke akun FinSmart kamu. Gunakan kode berikut untuk melanjutkan.
+                  Kode berlaku selama <strong>10 menit</strong>.
+                </p>
+                <div style="background:#EDE9FE;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px">
+                  <span style="font-size:36px;font-weight:900;letter-spacing:8px;color:#7C3AED">${otp}</span>
+                </div>
+                <p style="color:#6B7280;font-size:12px;margin:0">
+                  Jika ini bukan kamu, segera amankan akun FinSmart kamu.
+                </p>
+              </div>
+            </div>
+          `,
+        }),
+      })
+      // Kembalikan flag requires2fa — JANGAN kirim token dulu
+      return res.json({ requires2fa: true, email: user.email })
+    }
+
     const token = signToken(user)
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar, role: user.role } })
   } catch (err) {
     console.error('Login error:', err)
+    res.status(500).json({ message: 'Terjadi kesalahan server.' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /auth/login-2fa  — verifikasi OTP lalu beri token
+// ─────────────────────────────────────────────────────────────────────
+router.post('/login-2fa', authLimiter, async (req, res) => {
+  const { email, otp } = req.body
+  if (!email?.trim() || !otp)
+    return res.status(400).json({ message: 'Email dan kode OTP wajib diisi.' })
+  try {
+    const [otpRows] = await pool.query(
+      `SELECT * FROM password_resets
+       WHERE email = ? AND otp = ? AND used = 0 AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [email.toLowerCase(), String(otp)]
+    )
+    if (otpRows.length === 0)
+      return res.status(400).json({ message: 'Kode OTP salah atau sudah kadaluarsa.' })
+
+    await pool.query('UPDATE password_resets SET used = 1 WHERE id = ?', [otpRows[0].id])
+
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email.toLowerCase()])
+    if (rows.length === 0) return res.status(404).json({ message: 'User tidak ditemukan.' })
+
+    const user  = rows[0]
+    const token = signToken(user)
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar, role: user.role } })
+  } catch (err) {
+    console.error('Login 2FA error:', err)
     res.status(500).json({ message: 'Terjadi kesalahan server.' })
   }
 })
@@ -196,7 +273,7 @@ router.get('/admin/admins', authMiddleware, async (req, res) => {
     return res.status(403).json({ message: 'Akses ditolak.' })
   try {
     const [admins] = await pool.query(
-      `SELECT id, name, email, role, created_at FROM users
+      `SELECT id, name, email, role, is_active, created_at FROM users
        WHERE role IN ('admin','superadmin')
        ORDER BY role DESC, created_at DESC`
     )
@@ -380,10 +457,133 @@ router.delete('/superadmin/admins/:id', authMiddleware, async (req, res) => {
   }
 })
 
-export default router
+// ─────────────────────────────────────────────────────────────────────
+// POST /auth/send-2fa-otp  — kirim OTP untuk aktifkan/nonaktifkan 2FA
+// ─────────────────────────────────────────────────────────────────────
+router.post('/send-2fa-otp', authMiddleware, authLimiter, async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [req.user.id])
+    if (rows.length === 0) return res.status(404).json({ message: 'User tidak ditemukan.' })
+
+    const email   = rows[0].email
+    const otp     = generateOtp()
+    const expires = new Date(Date.now() + 10 * 60 * 1000) // 10 menit
+
+    await pool.query('DELETE FROM password_resets WHERE email = ?', [email])
+    await pool.query(
+      'INSERT INTO password_resets (email, otp, expires_at) VALUES (?, ?, ?)',
+      [email, otp, expires]
+    )
+
+    // Kirim email OTP via Brevo
+    const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: 'FinSmart', email: process.env.BREVO_SENDER_EMAIL },
+        to: [{ email }],
+        subject: '🛡️ Kode Verifikasi 2 Langkah FinSmart',
+        htmlContent: `
+          <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#F9FAFB;border-radius:16px">
+            <div style="text-align:center;margin-bottom:24px">
+              <span style="font-size:32px;font-weight:900;color:#1E1B4B">Fin<span style="color:#7C3AED">Smart</span></span>
+            </div>
+            <div style="background:white;border-radius:12px;padding:28px;box-shadow:0 4px 20px rgba(124,58,237,0.1)">
+              <h2 style="color:#1E1B4B;margin-bottom:8px">Verifikasi 2 Langkah 🛡️</h2>
+              <p style="color:#6B7280;font-size:14px;margin-bottom:24px">
+                Gunakan kode berikut untuk mengaktifkan Verifikasi 2 Langkah di akun FinSmart kamu.
+                Kode berlaku selama <strong>10 menit</strong>.
+              </p>
+              <div style="background:#EDE9FE;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px">
+                <span style="font-size:36px;font-weight:900;letter-spacing:8px;color:#7C3AED">${otp}</span>
+              </div>
+              <p style="color:#6B7280;font-size:12px;margin:0">
+                Jika kamu tidak meminta ini, abaikan email ini.
+              </p>
+            </div>
+          </div>
+        `,
+      }),
+    })
+    if (!brevoRes.ok) {
+      const err = await brevoRes.json()
+      throw new Error(`Brevo error: ${JSON.stringify(err)}`)
+    }
+
+    res.json({ message: 'Kode OTP berhasil dikirim ke emailmu.' })
+  } catch (err) {
+    console.error('Send 2FA OTP error:', err)
+    res.status(500).json({ message: 'Gagal mengirim email. Coba lagi nanti.' })
+  }
+})
 
 // ─────────────────────────────────────────────────────────────────────
-// Helper: kirim email OTP via Brevo HTTP API (tidak butuh SMTP port)
+// POST /auth/verify-2fa-otp  — verifikasi OTP lalu simpan status 2FA
+// ─────────────────────────────────────────────────────────────────────
+router.post('/verify-2fa-otp', authMiddleware, authLimiter, async (req, res) => {
+  const { otp, enable } = req.body   // enable: true = aktifkan, false = nonaktifkan
+  if (!otp) return res.status(400).json({ message: 'Kode OTP wajib diisi.' })
+  try {
+    const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [req.user.id])
+    if (rows.length === 0) return res.status(404).json({ message: 'User tidak ditemukan.' })
+
+    const email = rows[0].email
+    const [otpRows] = await pool.query(
+      `SELECT * FROM password_resets
+       WHERE email = ? AND otp = ? AND used = 0 AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [email, String(otp)]
+    )
+    if (otpRows.length === 0)
+      return res.status(400).json({ message: 'Kode OTP salah atau sudah kadaluarsa.' })
+
+    // Tandai OTP sudah terpakai
+    await pool.query('UPDATE password_resets SET used = 1 WHERE id = ?', [otpRows[0].id])
+
+    // Simpan status 2FA ke tabel users (kolom two_fa_enabled)
+    await pool.query('UPDATE users SET two_fa_enabled = ? WHERE id = ?', [enable ? 1 : 0, req.user.id])
+
+    res.json({
+      message: enable ? 'Verifikasi 2 Langkah berhasil diaktifkan! 🛡️' : 'Verifikasi 2 Langkah dinonaktifkan.',
+      twoFaEnabled: !!enable,
+    })
+  } catch (err) {
+    console.error('Verify 2FA OTP error:', err)
+    res.status(500).json({ message: 'Terjadi kesalahan server.' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// PATCH /auth/admin/admins/:id/toggle-active  — aktifkan/nonaktifkan admin
+// ─────────────────────────────────────────────────────────────────────
+router.patch('/admin/admins/:id/toggle-active', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'superadmin')
+    return res.status(403).json({ message: 'Akses ditolak.' })
+  const { id } = req.params
+  if (Number(id) === req.user.id)
+    return res.status(400).json({ message: 'Tidak bisa mengubah status akun sendiri.' })
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, name, is_active FROM users WHERE id = ? AND role = 'admin'", [id]
+    )
+    if (rows.length === 0)
+      return res.status(404).json({ message: 'Admin tidak ditemukan.' })
+    const newStatus = rows[0].is_active ? 0 : 1
+    await pool.query('UPDATE users SET is_active = ? WHERE id = ?', [newStatus, id])
+    res.json({
+      message: newStatus ? `Admin ${rows[0].name} berhasil diaktifkan.` : `Admin ${rows[0].name} berhasil dinonaktifkan.`,
+      is_active: newStatus
+    })
+  } catch (err) {
+    console.error('Toggle active error:', err)
+    res.status(500).json({ message: 'Terjadi kesalahan server.' })
+  }
+})
+
+export default router
 // ─────────────────────────────────────────────────────────────────────
 function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000))

@@ -42,6 +42,9 @@ export const authApi = {
   forgotPassword: (email)           => api.post('/auth/forgot-password', { email }),
   verifyOtp:      (email, otp)      => api.post('/auth/verify-otp', { email, otp }),
   resetPassword:  (email, otp, newPassword) => api.post('/auth/reset-password', { email, otp, newPassword }),
+  send2faOtp:     ()                => api.post('/auth/send-2fa-otp'),
+  verify2faOtp:   (otp, enable)     => api.post('/auth/verify-2fa-otp', { otp, enable }),
+  login2fa:       (email, otp)      => api.post('/auth/login-2fa', { email, otp }),
 }
 
 export const adminAuthApi = {
@@ -51,6 +54,7 @@ export const adminAuthApi = {
   getProfile:      ()                => adminApi.get('/auth/me'),
   getUsers:        ()                => adminApi.get('/auth/admin/users'),
   getAdmins:       ()                => adminApi.get('/auth/admin/admins'),
+  toggleAdminActive: (id)            => adminApi.patch(`/auth/admin/admins/${id}/toggle-active`),
 }
 
 export const superAdminApi = {

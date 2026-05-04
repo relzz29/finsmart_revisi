@@ -44,6 +44,23 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const data = await authApi.login(email, password)
+      // Server minta verifikasi 2FA dulu — jangan set token
+      if (data.requires2fa) {
+        return { success: false, requires2fa: true, email: data.email }
+      }
+      setToken(data.token)
+      setUser(data.user)
+      if (_refetchNotifs) _refetchNotifs()
+      notify({ type: 'login', title: 'Login Berhasil 👋', body: `Selamat datang, ${data.user?.name}!` })
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  }
+
+  const login2fa = async (email, otp) => {
+    try {
+      const data = await authApi.login2fa(email, otp)
       setToken(data.token)
       setUser(data.user)
       if (_refetchNotifs) _refetchNotifs()
@@ -76,7 +93,7 @@ export const AuthProvider = ({ children }) => {
   const updateUser = (data) => setUser(prev => ({ ...prev, ...data }))
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser, refetchProfile }}>
+    <AuthContext.Provider value={{ user, loading, login, login2fa, register, logout, updateUser, refetchProfile }}>
       {children}
     </AuthContext.Provider>
   )
