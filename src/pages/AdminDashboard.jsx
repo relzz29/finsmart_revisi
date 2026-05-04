@@ -741,7 +741,7 @@ export default function AdminDashboard() {
   // ── MODALS ──
   const ArtModal = () => !showArtForm ? null : (
     <div className="a-overlay" onClick={e=>e.target===e.currentTarget&&setShowArtForm(false)}>
-      <div className="a-modal" style={{ maxWidth:560 }}>
+      <div className="a-modal" onClick={e=>e.stopPropagation()} style={{ maxWidth:560 }}>
         <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20 }}>
           <h3 style={{ fontWeight:900,fontSize:18,margin:0 }}>{editArt?'✏️ Edit Artikel':'➕ Tambah Artikel'}</h3>
           <button onClick={()=>setShowArtForm(false)} style={{ background:'#F3F4F6',border:'none',borderRadius:'50%',width:34,height:34,cursor:'pointer' }}>✕</button>
