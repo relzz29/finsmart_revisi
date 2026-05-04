@@ -739,7 +739,7 @@ export default function AdminDashboard() {
   )
 
   // ── MODALS ──
-  const ArtModal = () => !showArtForm ? null : (
+  const artModal = !showArtForm ? null : (
     <div className="a-overlay" onClick={e=>e.target===e.currentTarget&&setShowArtForm(false)}>
       <div className="a-modal" onClick={e=>e.stopPropagation()} style={{ maxWidth:560 }}>
         <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20 }}>
@@ -846,7 +846,7 @@ export default function AdminDashboard() {
           {tab==='__msg__'      && msgTarget && <MsgPage user={msgTarget} onBack={()=>{setMsgTarget(null);setTab('users')}} />}
         </main>
       </div>
-      <UserModal /><LogoutModal /><ArtModal /><DelModal /><Toast />
+      <UserModal /><LogoutModal />{artModal}<DelModal /><Toast />
     </div>
   )
 }
